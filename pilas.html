@@ -1,34 +1,538 @@
-## pilas y colas
-
-    function actualizarInterfaz() {
-      const lista = document.getElementById("carrito-lista");
-      if (carritoUsuario.items.length === 0) {
-        lista.innerHTML = "El carrito está vacío.";
-        document.getElementById("btn-checkout").disabled = true;
-      } else {
-        lista.innerHTML = `
-          <table>
-            <tr><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Acciones</th></tr>
-            ${carritoUsuario.items.map(i => `
-              <tr>
-                <td>${i.producto.nombre}</td>
-                <td>${i.cantidad}</td>
-                <td>$ ${i.producto.precio.toFixed(2)}</td>
-                <td>$ ${(i.producto.precio * i.cantidad).toFixed(2)}</td>
-                <td>
-                  <button class="btn-menos" onclick="restarProducto('${i.producto.id}')">➖</button>
-                  <button class="btn-eliminar" onclick="eliminarProductoCompletamente('${i.producto.id}')">🗑️</button>
-                </td>
-              </tr>`).join("")}
-          </table>`;
-        document.getElementById("btn-checkout").disabled = false;
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pilas y Colas · Tienda</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --panel: #ffffff;
+      --text: #1d2433;
+      --muted: #667085;
+      --border: #e3e7ef;
+      --accent: #2f6fed;
+      --accent-soft: #e8efff;
+      --pila: #7c3aed;
+      --pila-soft: #f1e9ff;
+      --cola: #0e9f6e;
+      --cola-soft: #e3f8ef;
+      --danger: #e5484d;
+      --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 4px 12px rgba(16, 24, 40, .06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f131a;
+        --panel: #171c25;
+        --text: #e6e9ef;
+        --muted: #98a2b3;
+        --border: #2a313d;
+        --accent: #6b9bff;
+        --accent-soft: #1d2a45;
+        --pila: #b18cff;
+        --pila-soft: #2a2040;
+        --cola: #3ccf98;
+        --cola-soft: #15302a;
+        --danger: #ff6b6f;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .3);
       }
-      document.getElementById("subtotal").textContent = carritoUsuario.subtotal.toFixed(2);
-      document.getElementById("iva").textContent = carritoUsuario.impuestos.toFixed(2);
-      document.getElementById("total").textContent = carritoUsuario.total.toFixed(2);
-      renderizarInventario();
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    header {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px 8px;
+    }
+    header h1 { margin: 0; font-size: 1.6rem; }
+    header p { margin: 4px 0 0; color: var(--muted); }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+    .columna { display: grid; gap: 16px; min-width: 0; }
+    section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+    h2 { margin: 0 0 12px; font-size: 1.1rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .etiqueta {
+      font-size: .7rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      padding: 2px 8px; border-radius: 999px;
+    }
+    .etiqueta.pila { background: var(--pila-soft); color: var(--pila); }
+    .etiqueta.cola { background: var(--cola-soft); color: var(--cola); }
+    .ayuda { color: var(--muted); font-size: .85rem; margin: -6px 0 12px; }
+
+    button {
+      font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--panel); color: var(--text); padding: 6px 12px;
+      transition: transform .05s, background .15s, opacity .15s;
+    }
+    button:hover:not(:disabled) { background: var(--accent-soft); }
+    button:active:not(:disabled) { transform: scale(.97); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    button.primario { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+    button.primario:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+    button.pila { border-color: var(--pila); color: var(--pila); }
+    button.pila:hover:not(:disabled) { background: var(--pila-soft); }
+    button.cola { background: var(--cola); border-color: var(--cola); color: #fff; font-weight: 600; }
+    button.cola:hover:not(:disabled) { filter: brightness(1.08); background: var(--cola); }
+    button.icono { padding: 4px 9px; }
+    button.peligro:hover:not(:disabled) { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+    /* Inventario */
+    .grid-productos { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+    .producto {
+      border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+      display: flex; flex-direction: column; gap: 4px; text-align: center;
+    }
+    .producto .emoji { font-size: 2rem; }
+    .producto .nombre { font-weight: 600; }
+    .producto .precio { color: var(--muted); font-size: .9rem; }
+    .stock { font-size: .75rem; color: var(--muted); }
+    .stock.bajo { color: var(--danger); font-weight: 600; }
+    .producto button { margin-top: 6px; }
+
+    /* Carrito */
+    .tabla-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { padding: 8px 6px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { color: var(--muted); font-weight: 600; font-size: .8rem; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .acciones { display: flex; gap: 4px; justify-content: flex-end; }
+    .vacio { color: var(--muted); text-align: center; padding: 18px 8px; border: 1px dashed var(--border); border-radius: 10px; }
+    .totales { margin-top: 12px; display: grid; gap: 4px; font-variant-numeric: tabular-nums; }
+    .totales div { display: flex; justify-content: space-between; }
+    .totales .total { font-size: 1.2rem; font-weight: 700; border-top: 1px solid var(--border); padding-top: 6px; }
+    .barra { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+    .barra input {
+      flex: 1 1 160px; min-width: 0; font: inherit; padding: 7px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
     }
 
+    /* Pila */
+    .pila-visual { display: flex; flex-direction: column; gap: 6px; }
+    .bloque {
+      border-radius: 8px; padding: 8px 10px; font-size: .88rem;
+      background: var(--pila-soft); border-left: 4px solid var(--pila);
+      display: flex; justify-content: space-between; gap: 8px; align-items: center;
+    }
+    .bloque.tope { outline: 2px solid var(--pila); font-weight: 600; }
+    .bloque small { color: var(--muted); font-weight: 400; }
+    .mas { color: var(--muted); font-size: .8rem; text-align: center; }
+
+    /* Cola */
+    .cola-visual { display: flex; gap: 8px; overflow-x: auto; padding: 22px 2px 6px; }
+    .ticket {
+      position: relative; flex: 0 0 auto; min-width: 130px; border-radius: 10px; padding: 8px 10px;
+      background: var(--cola-soft); border-top: 4px solid var(--cola); font-size: .85rem;
+    }
+    .ticket .num-pedido { font-weight: 700; }
+    .ticket .marca {
+      position: absolute; top: -20px; left: 0; font-size: .68rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .04em; color: var(--cola);
+    }
+    .ticket.frente { outline: 2px solid var(--cola); }
+    .flecha { align-self: center; color: var(--muted); }
+    .auto { display: flex; align-items: center; gap: 6px; font-size: .88rem; color: var(--muted); }
+    .historial { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: .85rem; }
+    .historial li { color: var(--muted); }
+    .historial li strong { color: var(--text); }
+
+    details { font-size: .9rem; }
+    details summary { cursor: pointer; font-weight: 600; }
+    details code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+    kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: .8rem; }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(20px);
+      background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px;
+      opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none;
+      max-width: calc(100% - 32px); font-size: .92rem; z-index: 10;
+    }
+    .toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🛒 Pilas y Colas en una tienda</h1>
+    <p>La <strong>pila</strong> guarda tus acciones para deshacerlas (LIFO). La <strong>cola</strong> atiende los pedidos en orden de llegada (FIFO).</p>
+  </header>
+
+  <main>
+    <div class="columna">
+      <section aria-labelledby="t-inventario">
+        <h2 id="t-inventario">📦 Inventario</h2>
+        <div class="grid-productos" id="inventario"></div>
+      </section>
+
+      <section aria-labelledby="t-carrito">
+        <h2 id="t-carrito">🧺 Carrito</h2>
+        <div id="carrito-lista"></div>
+        <div class="totales">
+          <div><span>Subtotal</span><span id="subtotal">$ 0</span></div>
+          <div><span>IVA (19%)</span><span id="iva">$ 0</span></div>
+          <div class="total"><span>Total</span><span id="total">$ 0</span></div>
+        </div>
+        <div class="barra">
+          <input id="cliente" type="text" maxlength="30" placeholder="Nombre del cliente (opcional)" aria-label="Nombre del cliente">
+          <button class="primario" id="btn-checkout" disabled>Pagar y enviar a la cola</button>
+          <button class="peligro" id="btn-vaciar" disabled>Vaciar</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="columna">
+      <section aria-labelledby="t-pila">
+        <h2 id="t-pila">↩️ Historial de acciones <span class="etiqueta pila">Pila · LIFO</span></h2>
+        <p class="ayuda">Cada cambio del carrito se apila. Deshacer saca el de arriba. Atajos: <kbd>Ctrl</kbd>+<kbd>Z</kbd> y <kbd>Ctrl</kbd>+<kbd>Y</kbd>.</p>
+        <div class="barra" style="margin: 0 0 12px">
+          <button class="pila" id="btn-deshacer" disabled>↶ Deshacer</button>
+          <button class="pila" id="btn-rehacer" disabled>↷ Rehacer</button>
+          <span class="ayuda" style="margin:0" id="info-pila"></span>
+        </div>
+        <div class="pila-visual" id="pila-visual"></div>
+      </section>
+
+      <section aria-labelledby="t-cola">
+        <h2 id="t-cola">🧾 Pedidos por atender <span class="etiqueta cola">Cola · FIFO</span></h2>
+        <p class="ayuda">Los pedidos pagados entran por el final; se atiende siempre el del frente.</p>
+        <div class="barra" style="margin: 0">
+          <button class="cola" id="btn-atender" disabled>Atender siguiente</button>
+          <label class="auto"><input type="checkbox" id="auto"> Atención automática (cada 4 s)</label>
+        </div>
+        <div class="cola-visual" id="cola-visual"></div>
+        <h3 style="font-size:.9rem;margin:12px 0 0">Últimos atendidos</h3>
+        <ul class="historial" id="historial"></ul>
+      </section>
+
+      <section>
+        <details>
+          <summary>¿Cómo funcionan la pila y la cola aquí?</summary>
+          <p><strong>Pila (LIFO, último en entrar, primero en salir):</strong> antes de cada cambio del carrito se guarda una "foto" del estado con <code>push()</code>. Al deshacer, <code>pop()</code> saca la foto más reciente y la restaura. La foto actual pasa a una segunda pila para poder <em>rehacer</em>. Si haces un cambio nuevo, la pila de rehacer se vacía.</p>
+          <p><strong>Cola (FIFO, primero en entrar, primero en salir):</strong> al pagar, el pedido entra con <code>enqueue()</code>. "Atender siguiente" usa <code>dequeue()</code> y saca siempre el pedido más antiguo. La cola usa índices de frente y final, así que ambas operaciones son O(1).</p>
+        </details>
+      </section>
+    </div>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    // ===== Estructuras de datos =====
+    class Pila {
+      #datos = [];
+      push(x) { this.#datos.push(x); }
+      pop() { return this.#datos.pop(); }
+      peek() { return this.#datos[this.#datos.length - 1]; }
+      get size() { return this.#datos.length; }
+      isEmpty() { return this.#datos.length === 0; }
+      clear() { this.#datos = []; }
+      toArray() { return [...this.#datos]; } // del fondo al tope
+    }
+
+    class Cola {
+      #datos = {};
+      #frente = 0;
+      #final = 0;
+      enqueue(x) { this.#datos[this.#final++] = x; }
+      dequeue() {
+        if (this.isEmpty()) return undefined;
+        const x = this.#datos[this.#frente];
+        delete this.#datos[this.#frente++];
+        return x;
+      }
+      peek() { return this.#datos[this.#frente]; }
+      get size() { return this.#final - this.#frente; }
+      isEmpty() { return this.size === 0; }
+      toArray() {
+        const r = [];
+        for (let i = this.#frente; i < this.#final; i++) r.push(this.#datos[i]);
+        return r; // del frente al final
+      }
+    }
+
+    // ===== Datos =====
+    const IVA = 0.19;
+    const inventario = [
+      { id: "cafe",      nombre: "Café",         icono: "☕", precio: 4500,  stock: 10 },
+      { id: "arepa",     nombre: "Arepa",        icono: "🫓", precio: 6500,  stock: 8 },
+      { id: "empanada",  nombre: "Empanada",     icono: "🥟", precio: 3500,  stock: 12 },
+      { id: "jugo",      nombre: "Jugo natural", icono: "🧃", precio: 7000,  stock: 6 },
+      { id: "pandebono", nombre: "Pandebono",    icono: "🥯", precio: 2500,  stock: 15 },
+      { id: "chocolate", nombre: "Chocolate",    icono: "🍫", precio: 5500,  stock: 5 },
+      { id: "bunuelo",   nombre: "Buñuelo",      icono: "🍩", precio: 2000,  stock: 10 },
+      { id: "sandwich",  nombre: "Sándwich",     icono: "🥪", precio: 12000, stock: 4 },
+    ];
+    const porId = Object.fromEntries(inventario.map(p => [p.id, p]));
+
+    // carrito: lista de { id, cantidad } en orden de llegada
+    let carrito = [];
+    const pilaDeshacer = new Pila();
+    const pilaRehacer = new Pila();
+    const colaPedidos = new Cola();
+    const atendidos = [];
+    let numeroPedido = 1;
+    let temporizador = null;
+
+    const pesos = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+    const $ = id => document.getElementById(id);
+    const escapar = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    // ===== Cálculos =====
+    function totales() {
+      const subtotal = carrito.reduce((s, i) => s + porId[i.id].precio * i.cantidad, 0);
+      const iva = Math.round(subtotal * IVA);
+      return { subtotal, iva, total: subtotal + iva };
+    }
+
+    // ===== Deshacer / Rehacer (pilas) =====
+    function foto() {
+      return {
+        carrito: carrito.map(i => ({ ...i })),
+        stock: Object.fromEntries(inventario.map(p => [p.id, p.stock])),
+      };
+    }
+    function restaurar(estado) {
+      carrito = estado.carrito.map(i => ({ ...i }));
+      for (const p of inventario) p.stock = estado.stock[p.id];
+    }
+    function registrar(descripcion, cambio) {
+      pilaDeshacer.push({ descripcion, estado: foto() });
+      pilaRehacer.clear();
+      cambio();
+      render();
+    }
+    function deshacer() {
+      if (pilaDeshacer.isEmpty()) return;
+      const paso = pilaDeshacer.pop();
+      pilaRehacer.push({ descripcion: paso.descripcion, estado: foto() });
+      restaurar(paso.estado);
+      render();
+      avisar(`Deshecho: ${paso.descripcion}`);
+    }
+    function rehacer() {
+      if (pilaRehacer.isEmpty()) return;
+      const paso = pilaRehacer.pop();
+      pilaDeshacer.push({ descripcion: paso.descripcion, estado: foto() });
+      restaurar(paso.estado);
+      render();
+      avisar(`Rehecho: ${paso.descripcion}`);
+    }
+
+    // ===== Acciones del carrito =====
+    function item(id) { return carrito.find(i => i.id === id); }
+
+    function agregarProducto(id) {
+      const p = porId[id];
+      if (!p || p.stock <= 0) return avisar(`No queda ${p ? p.nombre : "ese producto"} en inventario`);
+      registrar(`Agregar ${p.icono} ${p.nombre}`, () => {
+        p.stock--;
+        const it = item(id);
+        if (it) it.cantidad++; else carrito.push({ id, cantidad: 1 });
+      });
+    }
+    function restarProducto(id) {
+      const it = item(id);
+      if (!it) return;
+      const p = porId[id];
+      registrar(`Quitar 1 ${p.icono} ${p.nombre}`, () => {
+        p.stock++;
+        it.cantidad--;
+        if (it.cantidad === 0) carrito = carrito.filter(i => i.id !== id);
+      });
+    }
+    function eliminarProductoCompletamente(id) {
+      const it = item(id);
+      if (!it) return;
+      const p = porId[id];
+      registrar(`Eliminar ${p.icono} ${p.nombre} (x${it.cantidad})`, () => {
+        p.stock += it.cantidad;
+        carrito = carrito.filter(i => i.id !== id);
+      });
+    }
+    function vaciarCarrito() {
+      if (carrito.length === 0) return;
+      registrar("Vaciar carrito", () => {
+        for (const it of carrito) porId[it.id].stock += it.cantidad;
+        carrito = [];
+      });
+    }
+
+    // ===== Pago y cola de pedidos =====
     function procesarPago() {
-      alert(`Pago procesado. Total: $${carritoUsuario.total.toFixed(2)}`);
-      vaciarCarrito
+      if (carrito.length === 0) return;
+      const t = totales();
+      const numero = numeroPedido++;
+      const nombre = $("cliente").value.trim();
+      const pedido = {
+        numero,
+        cliente: nombre || `Cliente ${numero}`,
+        items: carrito.map(i => ({ ...porId[i.id], cantidad: i.cantidad })),
+        unidades: carrito.reduce((s, i) => s + i.cantidad, 0),
+        ...t,
+        hora: new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }),
+      };
+      colaPedidos.enqueue(pedido);
+      // Un pago no se puede deshacer: el historial empieza de nuevo
+      carrito = [];
+      pilaDeshacer.clear();
+      pilaRehacer.clear();
+      $("cliente").value = "";
+      render();
+      avisar(`Pedido #${numero} pagado (${pesos.format(t.total)}). Posición en la cola: ${colaPedidos.size}`);
+    }
+    function atenderSiguiente() {
+      const pedido = colaPedidos.dequeue();
+      if (!pedido) return;
+      atendidos.unshift(pedido);
+      if (atendidos.length > 5) atendidos.pop();
+      render();
+      avisar(`✅ Pedido #${pedido.numero} de ${pedido.cliente} entregado`);
+    }
+    function alternarAuto(activo) {
+      clearInterval(temporizador);
+      temporizador = activo ? setInterval(() => { if (!colaPedidos.isEmpty()) atenderSiguiente(); }, 4000) : null;
+    }
+
+    // ===== Interfaz =====
+    function renderizarInventario() {
+      $("inventario").innerHTML = inventario.map(p => `
+        <div class="producto">
+          <div class="emoji" aria-hidden="true">${p.icono}</div>
+          <div class="nombre">${p.nombre}</div>
+          <div class="precio">${pesos.format(p.precio)}</div>
+          <div class="stock ${p.stock <= 2 ? "bajo" : ""}">${p.stock === 0 ? "Agotado" : `Quedan ${p.stock}`}</div>
+          <button data-accion="agregar" data-id="${p.id}" ${p.stock === 0 ? "disabled" : ""}>Agregar</button>
+        </div>`).join("");
+    }
+
+    function renderizarCarrito() {
+      const lista = $("carrito-lista");
+      if (carrito.length === 0) {
+        lista.innerHTML = `<div class="vacio">El carrito está vacío. Agrega productos del inventario.</div>`;
+      } else {
+        lista.innerHTML = `
+          <div class="tabla-scroll"><table>
+            <thead><tr><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th><th class="num">Acciones</th></tr></thead>
+            <tbody>${carrito.map(i => {
+              const p = porId[i.id];
+              return `<tr>
+                <td>${p.icono} ${p.nombre}</td>
+                <td class="num">${i.cantidad}</td>
+                <td class="num">${pesos.format(p.precio)}</td>
+                <td class="num">${pesos.format(p.precio * i.cantidad)}</td>
+                <td><div class="acciones">
+                  <button class="icono" data-accion="sumar" data-id="${p.id}" ${p.stock === 0 ? "disabled" : ""} aria-label="Agregar uno de ${p.nombre}">➕</button>
+                  <button class="icono" data-accion="restar" data-id="${p.id}" aria-label="Quitar uno de ${p.nombre}">➖</button>
+                  <button class="icono peligro" data-accion="eliminar" data-id="${p.id}" aria-label="Eliminar ${p.nombre}">🗑️</button>
+                </div></td>
+              </tr>`;
+            }).join("")}</tbody>
+          </table></div>`;
+      }
+      const t = totales();
+      $("subtotal").textContent = pesos.format(t.subtotal);
+      $("iva").textContent = pesos.format(t.iva);
+      $("total").textContent = pesos.format(t.total);
+      $("btn-checkout").disabled = carrito.length === 0;
+      $("btn-vaciar").disabled = carrito.length === 0;
+    }
+
+    function renderizarPila() {
+      const pasos = pilaDeshacer.toArray().reverse(); // tope primero
+      const MAX = 7;
+      $("pila-visual").innerHTML = pasos.length === 0
+        ? `<div class="vacio">La pila está vacía. Modifica el carrito para apilar acciones.</div>`
+        : pasos.slice(0, MAX).map((p, i) => `
+            <div class="bloque ${i === 0 ? "tope" : ""}">
+              <span>${p.descripcion}</span>
+              <small>${i === 0 ? "← TOPE" : `#${pasos.length - i}`}</small>
+            </div>`).join("") + (pasos.length > MAX ? `<div class="mas">… y ${pasos.length - MAX} más abajo</div>` : "");
+      $("btn-deshacer").disabled = pilaDeshacer.isEmpty();
+      $("btn-rehacer").disabled = pilaRehacer.isEmpty();
+      $("info-pila").textContent = `Tamaño: ${pilaDeshacer.size} · Rehacer: ${pilaRehacer.size}`;
+    }
+
+    function renderizarCola() {
+      const pedidos = colaPedidos.toArray();
+      $("cola-visual").innerHTML = pedidos.length === 0
+        ? `<div class="vacio" style="flex:1">No hay pedidos en espera.</div>`
+        : pedidos.map((p, i) => `
+            ${i > 0 ? `<span class="flecha" aria-hidden="true">←</span>` : ""}
+            <div class="ticket ${i === 0 ? "frente" : ""}">
+              ${i === 0 ? `<span class="marca">Frente</span>` : ""}
+              ${i === pedidos.length - 1 && i > 0 ? `<span class="marca">Final</span>` : ""}
+              <div class="num-pedido">#${p.numero} · ${escapar(p.cliente)}</div>
+              <div>${p.unidades} producto${p.unidades === 1 ? "" : "s"}</div>
+              <div><strong>${pesos.format(p.total)}</strong></div>
+              <small>${p.hora}</small>
+            </div>`).join("");
+      $("btn-atender").disabled = colaPedidos.isEmpty();
+      $("btn-atender").textContent = colaPedidos.isEmpty() ? "Atender siguiente" : `Atender siguiente (${colaPedidos.size} en espera)`;
+      $("historial").innerHTML = atendidos.length === 0
+        ? `<li>Aún no se ha atendido ningún pedido.</li>`
+        : atendidos.map(p => `<li><strong>#${p.numero} ${escapar(p.cliente)}</strong> · ${p.items.map(it => `${it.icono}×${it.cantidad}`).join(" ")} · ${pesos.format(p.total)}</li>`).join("");
+    }
+
+    function render() {
+      renderizarInventario();
+      renderizarCarrito();
+      renderizarPila();
+      renderizarCola();
+    }
+
+    let toastTimer;
+    function avisar(msg) {
+      const t = $("toast");
+      t.textContent = msg;
+      t.classList.add("visible");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove("visible"), 2600);
+    }
+
+    // ===== Eventos =====
+    document.addEventListener("click", e => {
+      const b = e.target.closest("button[data-accion]");
+      if (!b) return;
+      const { accion, id } = b.dataset;
+      if (accion === "agregar" || accion === "sumar") agregarProducto(id);
+      else if (accion === "restar") restarProducto(id);
+      else if (accion === "eliminar") eliminarProductoCompletamente(id);
+    });
+    $("btn-checkout").addEventListener("click", procesarPago);
+    $("btn-vaciar").addEventListener("click", vaciarCarrito);
+    $("btn-deshacer").addEventListener("click", deshacer);
+    $("btn-rehacer").addEventListener("click", rehacer);
+    $("btn-atender").addEventListener("click", atenderSiguiente);
+    $("auto").addEventListener("change", e => alternarAuto(e.target.checked));
+    $("cliente").addEventListener("keydown", e => { if (e.key === "Enter") procesarPago(); });
+    document.addEventListener("keydown", e => {
+      if (e.target.tagName === "INPUT") return;
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); deshacer(); }
+      else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); rehacer(); }
+    });
+
+    render();
+  </script>
+</body>
+</html>
